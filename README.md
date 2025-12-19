@@ -43,8 +43,8 @@ Nodes automatically switch between integration methods based on infectious count
 ### Using uv (recommended)
 
 ```bash
-git clone https://github.com/yourusername/hybrid-stochastic-seir.git
-cd hybrid-stochastic-seir
+git clone https://github.com/institutefordiseasemodeling/explore-hybrid-mpm.git
+cd explore-hybrid-mpm
 uv sync
 ```
 
@@ -115,7 +115,7 @@ config = StochasticModelConfig(
 ## Repository Structure
 
 ```
-hybrid-stochastic-seir/
+explore-hybrid-mpm/
 ├── src/
 │   ├── SEIR_pde_metapop_stochastic_taichi.py  # Main implementation
 │   ├── SEIR_pde_metapop_taichi.py             # GPU baseline (deterministic)
@@ -274,11 +274,11 @@ The fixed dt with RK4 and clamping is less accurate than adaptive RK45 but much 
 If you use this code in your research, please cite:
 
 ```bibtex
-@software{hybrid_stochastic_seir,
+@software{explore_hybrid_mpm,
   title = {Hybrid Stochastic/Deterministic SEIR Metapopulation Model},
-  author = {Your Name},
+  author = {Institute for Disease Modeling},
   year = {2024},
-  url = {https://github.com/yourusername/hybrid-stochastic-seir}
+  url = {https://github.com/institutefordiseasemodeling/explore-hybrid-mpm}
 }
 ```
 
