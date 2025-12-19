@@ -1,0 +1,155 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spatial-features"
+version = "0.0.1"
+authors = [
+  { name="Daniel J. Klein", email="daniel.klein@gatesfoundation.org" },
+]
+maintainers = [
+  { name="Daniel J. Klein", email="daniel.klein@gatesfoundation.org" },
+]
+description = "Spatial features for polio model calibration"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.13"
+keywords = ["calibration", "agent-based model", "polio", "simulation", "spatial modeling", "disease"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+dependencies = [
+    #"laser-polio @ git+ssh://git@github.com/InstituteforDiseaseModeling/laser-polio.git@main",
+    "laser-polio @ git+ssh://git@github.com/daniel-klein/laser-polio@relax-pyproject",
+    #"laser-polio",
+    #"calabaria",
+    "calabaria @ git+ssh://git@github.com/InstituteforDiseaseModeling/calabaria.git@dk/feature-scenarios",
+    "geopandas",
+    "geopy",
+    "h5py",
+    "laser-core~=0.2",
+    "matplotlib",
+    "numba>=0.59.1",
+    #"numpy>=1.26.4,<2.0.0",
+    "numpy",
+    "pandas",
+    "pypdf",
+    "pytest",
+    "openpyxl",
+    # "rastertools @ git+https://github.com/InstituteforDiseaseModeling/RasterTools.git@76e4b737337449b103d8d9070248a970e9c05713",
+    "requests",
+    "scipy",
+    "sciris>=3.1.7",
+    "shapely",
+    "seaborn",
+    "tables",
+    "tqdm",
+    "unidecode",
+    "networkx",
+    "taichi>=1.7.4",
+]
+
+[tool.setuptools.package-data]
+# "examples" = ["**/*"]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "bump-my-version",
+    "flake8",
+    "pytest>=6.0",
+    "setuptools>=61.0",
+    # "tox", # install with "uv tool install tox --with tox-uv"
+    "uv",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "scipy",
+]
+optuna_extras = [
+    "torch",
+    "scikit-learn",
+    "optuna-dashboard",
+    "optuna-fast-fanova",
+    "gunicorn"
+]
+
+[project.urls]
+Repository = "https://github.com/InstituteforDiseaseModeling/spatial-features.git"
+
+[tool.uv.sources]
+#calabaria = { path = "../calabaria", editable = true }
+#laser-polio = { path = "../laser-polio", editable = true }
+
+[tool.ruff]
+extend-exclude = ["static", "ci/templates"]
+line-length = 140
+src = ["src", "tests"]
+target-version = "py313"
+
+[tool.ruff.lint.per-file-ignores]
+"ci/*" = ["S"]
+
+[tool.ruff.lint]
+ignore = [
+    "RUF001", # ruff-specific rules ambiguous-unicode-character-string
+    "S101", # flake8-bandit assert
+    "S308", # flake8-bandit suspicious-mark-safe-usage
+    "S603", # flake8-bandit subprocess-without-shell-equals-true
+    "S607", # flake8-bandit start-process-with-partial-path
+    "E501", # pycodestyle line-too-long
+    "E741", # sometimes I want to use I as a variable even if it looks like a 1 to some people
+    "PTH103", # I have neither desire nor need to think about paths as objects
+    "PTH110", # I have no desire to think about paths as objects
+    "PTH118", # I have no desire to think about paths as objects
+    "PTH119", # I have no desire to think about paths as objects
+    "PTH122", # I have neither desire nor need to think about paths as objects
+    "PTH123", # I have neither desire nor need to think about paths as objects
+    "PTH208",
+    "DTZ002", # I want to be able to just call a today() function.
+    "UP038", # due to be deprecated
+]
+select = [
+    "B", # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "E", # pycodestyle errors
+    "EXE", # flake8-executable
+    "F", # pyflakes
+    "I", # isort
+    "INT", # flake8-gettext
+    "PIE", # flake8-pie
+    "PLC", # pylint convention
+    "PLE", # pylint errors
+    "PT", # flake8-pytest-style
+    "PTH", # flake8-use-pathlib
+    "RSE", # flake8-raise
+    "RUF", # ruff-specific rules
+    "S", # flake8-bandit
+    "UP", # pyupgrade
+    "W", # pycodestyle warnings
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.isort]
+forced-separate = ["conftest"]
+force-single-line = true
+
+[tool.ruff.format]
+quote-style = "double"
