@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from scipy.integrate import solve_ivp
 from scipy.stats import gamma, lognorm, powerlaw
 from typing import Literal, Optional
-from laser_core.migration import gravity as laser_gravity
 
 
 # ============================================================================
@@ -262,17 +261,47 @@ def generate_node_betas(n_nodes: int, beta_mean: float, beta_variance: float,
     return betas
 
 
+def gravity(populations: np.ndarray, distances: np.ndarray,
+            k: float = 1.0, a: float = 1.0, b: float = 1.0, c: float = 2.0) -> np.ndarray:
+    """
+    Compute gravity-based connectivity matrix.
+
+    Formula: M_ij = k * (N_i^a * N_j^b) / d_ij^c for i != j
+             M_ii = 0 (diagonal is zero)
+
+    Args:
+        populations: (n_nodes,) population per node
+        distances: (n_nodes, n_nodes) distance matrix
+        k: Scaling constant
+        a: Origin population exponent
+        b: Destination population exponent
+        c: Distance decay exponent
+
+    Returns:
+        gravity_matrix: (n_nodes, n_nodes) off-diagonal connectivity
+    """
+    n = len(populations)
+    gravity_matrix = np.zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            if i != j and distances[i, j] > 0:
+                gravity_matrix[i, j] = k * (populations[i]**a * populations[j]**b) / (distances[i, j]**c)
+
+    return gravity_matrix
+
+
 def build_gravity_network(populations: np.ndarray, distances: np.ndarray,
                          a: float = 1.0, b: float = 1.0, c: float = 2.0,
                          k: float = 1.0) -> np.ndarray:
     """
-    Build gravity-based migration network using laser-core.
+    Build gravity-based migration network.
 
-    Uses laser_core.migration.gravity() exactly as in laser-polio ABM,
+    Uses gravity model (compatible with laser-core implementation),
     then adds diagonal for local transmission and row-normalizes.
 
     Network construction:
-    1. gravity_offdiag = laser_core.gravity(pop, dist, k, a, b, c)
+    1. gravity_offdiag = gravity(pop, dist, k, a, b, c)
        - Returns off-diagonal only (diagonal = 0 by design)
        - k parameter scales the entire gravity matrix
     2. network = I + gravity_offdiag
@@ -310,10 +339,10 @@ def build_gravity_network(populations: np.ndarray, distances: np.ndarray,
     if n_nodes == 1:
         return np.array([[1.0]])
 
-    # Use laser-core gravity function to get raw connectivity structure
+    # Use gravity function to get raw connectivity structure
     # Pass k=1.0 to get unscaled gravity weights (diagonal = 0 by design)
     # Convert distances to float to avoid integer power issues
-    gravity_raw = laser_gravity(populations, distances.astype(float), k=1.0, a=a, b=b, c=c)
+    gravity_raw = gravity(populations, distances.astype(float), k=1.0, a=a, b=b, c=c)
 
     # Normalize gravity matrix by its max row sum to get relative connectivity
     # This makes the gravity weights comparable to the diagonal (1.0)
