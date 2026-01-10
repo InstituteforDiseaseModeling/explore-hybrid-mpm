@@ -58,3 +58,21 @@ select = [
     "F",     # pyflakes
     "I",     # isort
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"src/SEIR_*.py" = [
+    "E741",  # ambiguous variable name 'I' (standard SEIR notation)
+    "E743",  # ambiguous function name 'I' (standard SEIR notation)
+]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+reportInvalidTypeForm = false  # Taichi uses runtime type expressions
+reportAttributeAccessIssue = false  # scipy stubs incomplete (rv_discrete_frozen.pdf exists at runtime)
+reportAssignmentType = "warning"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.10",
+    "pyright>=1.1.0",
+]

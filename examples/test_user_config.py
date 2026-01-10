@@ -2,9 +2,10 @@
 Test with the user's exact configuration (774 nodes).
 """
 
-from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
-from SEIR_pde_metapop import extract_timeseries
 import numpy as np
+
+from SEIR_pde_metapop import extract_timeseries
+from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
 
 print("="*70)
 print("Testing User's Configuration (774 nodes)")
@@ -15,19 +16,19 @@ config = StochasticModelConfig(
     n_age=16,
     n_bins=50,
     seed_node_idx=0,
-    seed_n_infections=10.0,
+    seed_n_infections=50.0,
     gravity_k=0.01,
     duration_days=50,  # Shorter for testing
-    backend='cpu',  # Use CPU for easier debugging
+    backend='cpu',
     use_float64=True,
     stochastic_threshold=100.0,
     tau_leap_dt=1.0,
     output_freq_days=1.0,
-    stochastic_seed=42,
+    stochastic_seed=45,
 )
 
 print("\nRunning simulation...")
-results = run_simulation_stochastic(config, spatial_seed=42, epi_seed=123)
+results = run_simulation_stochastic(config, spatial_seed=40, epi_seed=1234)
 
 # Extract timeseries
 ts = extract_timeseries(results)

@@ -6,13 +6,21 @@ Tests:
 - Hybrid modes (threshold=10, 50, 100, 500)
 - Fully stochastic (threshold=∞, all nodes use tau-leaping)
 
-For stochastic modes, run multiple realizations to show variability.
+For all models with stochastic elements (threshold > 0), run multiple realizations to show variability.
 """
 
-import numpy as np
+import time
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
+import numpy as np
+
 from SEIR_pde_metapop import extract_timeseries
+from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
+
+# Ensure figures directory exists
+figures_dir = Path(__file__).parent.parent / 'figures'
+figures_dir.mkdir(exist_ok=True)
 
 print("="*70)
 print("Threshold Comparison: Deterministic vs Hybrid vs Stochastic")
@@ -20,27 +28,29 @@ print("="*70)
 
 # Base configuration
 base_config = {
-    'n_nodes': 20,
-    'n_age': 4,
-    'n_bins': 10,
+    'n_nodes': 128,
+    'n_age': 16,
+    'n_bins': 50,
     'seed_node_idx': 0,
-    'seed_n_infections': 80.0,  # High enough for epidemic to take off
+    'seed_n_infections': 10.0,
     'gravity_k': 0.01,
     'duration_days': 150,
-    'backend': 'cpu',
-    'use_float64': True,
+    'backend': 'metal',  # Use GPU acceleration (Metal on macOS, or 'cuda' on NVIDIA)
+    'use_float64': False,  # float32 is sufficient for stochastic models
     'tau_leap_dt': 1.0,
     'output_freq_days': 1.0,
 }
 
 # Thresholds to test
+# Note: All thresholds > 0 have stochastic elements, so run multiple replicates
+reps = 10
 thresholds = [
-    (0.0, "Fully Deterministic (all RK4)", 1),      # threshold=0 → all deterministic
-    (10.0, "Hybrid (threshold=10)", 1),
-    (50.0, "Hybrid (threshold=50)", 1),
-    (100.0, "Hybrid (threshold=100)", 1),
-    (500.0, "Hybrid (threshold=500)", 5),           # More stochastic, more runs
-    (1e10, "Fully Stochastic (all tau-leap)", 10),  # All stochastic, many runs
+    (0.0, "Fully Deterministic (all RK4)", 1),      # threshold=0 → all deterministic, no stochasticity
+    (10.0, "Hybrid (threshold=10)", reps),            # Hybrid: stochastic at low I
+    (50.0, "Hybrid (threshold=50)", reps),            # Hybrid: stochastic at low I
+    (100.0, "Hybrid (threshold=100)", reps),          # Hybrid: stochastic at low I
+    (500.0, "Hybrid (threshold=500)", reps),          # More stochastic
+    (1e10, "Fully Stochastic (all tau-leap)", reps),  # All stochastic
 ]
 
 results_dict = {}
@@ -53,6 +63,7 @@ for threshold, label, n_runs in thresholds:
     print(f"{'='*70}")
 
     I_trajectories = []
+    run_times = []
 
     for run_idx in range(n_runs):
         config = StochasticModelConfig(
@@ -62,19 +73,27 @@ for threshold, label, n_runs in thresholds:
         )
 
         print(f"  Run {run_idx + 1}/{n_runs}...", end='')
+        t0 = time.time()
         results = run_simulation_stochastic(config, spatial_seed=42, epi_seed=123)
+        run_time = time.time() - t0
+        run_times.append(run_time)
+
         ts = extract_timeseries(results)
         I_total = ts['I_node'].sum(axis=0)
         I_trajectories.append(I_total)
-        print(f" peak={I_total.max():.0f}")
+        print(f" peak={I_total.max():.0f}, time={run_time:.2f}s")
 
     I_trajectories = np.array(I_trajectories)  # Shape: (n_runs, n_timepoints)
+    run_times = np.array(run_times)
 
     # Compute statistics
     I_mean = I_trajectories.mean(axis=0)
     I_std = I_trajectories.std(axis=0)
     I_min = I_trajectories.min(axis=0)
     I_max = I_trajectories.max(axis=0)
+
+    mean_time = run_times.mean()
+    std_time = run_times.std()
 
     results_dict[threshold] = {
         'label': label,
@@ -84,9 +103,12 @@ for threshold, label, n_runs in thresholds:
         'std': I_std,
         'min': I_min,
         'max': I_max,
+        'mean_time': mean_time,
+        'std_time': std_time,
     }
 
     print(f"  Mean peak: {I_mean.max():.0f} ± {I_std[I_mean.argmax()]:.0f}")
+    print(f"  Mean run time: {mean_time:.2f} ± {std_time:.2f}s")
     if n_runs > 1:
         cv = I_std[I_mean.argmax()] / I_mean.max()
         print(f"  Coefficient of variation at peak: {cv:.2%}")
@@ -114,10 +136,15 @@ colors = {
 # ---------- Plot 1: All trajectories with confidence bands ----------
 fig, ax = plt.subplots(1, 1, figsize=(12, 6))
 
-for threshold in [0.0, 50.0, 100.0, 1e10]:
+for threshold in [0.0, 10.0, 50.0, 1e10]:
     data = results_dict[threshold]
     color = colors[threshold]
-    label = data['label']
+
+    # Create label with timing info
+    if data['n_runs'] > 1:
+        label = f"{data['label']} ({data['mean_time']:.1f}±{data['std_time']:.1f}s)"
+    else:
+        label = f"{data['label']} ({data['mean_time']:.1f}s)"
 
     # Plot mean
     ax.plot(t_array, data['mean'], color=color, linewidth=2.5, label=label)
@@ -137,8 +164,8 @@ ax.legend(loc='best', fontsize=10)
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('threshold_comparison.pdf')
-print("✓ Saved: threshold_comparison.pdf")
+plt.savefig(figures_dir / 'threshold_comparison.pdf')
+print(f"✓ Saved: {figures_dir / 'threshold_comparison.pdf'}")
 
 # ---------- Plot 2: Individual realizations for fully stochastic ----------
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -153,9 +180,13 @@ for idx, threshold in enumerate(plot_thresholds):
     for traj in data['trajectories']:
         ax.plot(t_array, traj, color=color, alpha=0.3, linewidth=0.8)
 
-    # Plot mean
+    # Plot mean with timing info
+    if data['n_runs'] > 1:
+        mean_label = f"Mean (n={data['n_runs']}, {data['mean_time']:.1f}±{data['std_time']:.1f}s)"
+    else:
+        mean_label = f"Mean ({data['mean_time']:.1f}s)"
     ax.plot(t_array, data['mean'], color='black', linewidth=2.5,
-            label=f"Mean (n={data['n_runs']})", zorder=10)
+            label=mean_label, zorder=10)
 
     ax.set_xlabel('Time (days)', fontsize=11)
     ax.set_ylabel('Total Infectious', fontsize=11)
@@ -164,8 +195,8 @@ for idx, threshold in enumerate(plot_thresholds):
     ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('threshold_individual_realizations.pdf')
-print("✓ Saved: threshold_individual_realizations.pdf")
+plt.savefig(figures_dir / 'threshold_individual_realizations.pdf')
+print(f"✓ Saved: {figures_dir / 'threshold_individual_realizations.pdf'}")
 
 # ---------- Plot 3: Summary statistics ----------
 fig, axes = plt.subplots(2, 1, figsize=(12, 8))
@@ -213,8 +244,8 @@ ax.set_title('Variability at Peak (across realizations)', fontsize=13, fontweigh
 ax.grid(True, alpha=0.3, axis='y')
 
 plt.tight_layout()
-plt.savefig('threshold_summary_stats.pdf')
-print("✓ Saved: threshold_summary_stats.pdf")
+plt.savefig(figures_dir / 'threshold_summary_stats.pdf')
+print(f"✓ Saved: {figures_dir / 'threshold_summary_stats.pdf'}")
 
 # ============================================================================
 # Summary Table
@@ -223,7 +254,7 @@ print("✓ Saved: threshold_summary_stats.pdf")
 print(f"\n{'='*70}")
 print("SUMMARY")
 print(f"{'='*70}")
-print(f"{'Threshold':<15} {'Label':<30} {'Runs':<6} {'Peak (mean)':<15} {'Peak (std)':<15} {'CV at peak'}")
+print(f"{'Threshold':<15} {'Label':<30} {'Runs':<6} {'Peak (mean)':<15} {'Peak (std)':<12} {'CV':<8} {'Time (s)'}")
 print("-"*70)
 
 for threshold in [0.0, 10.0, 50.0, 100.0, 500.0, 1e10]:
@@ -234,8 +265,13 @@ for threshold in [0.0, 10.0, 50.0, 100.0, 500.0, 1e10]:
 
     thresh_str = "0 (Det)" if threshold == 0.0 else ("∞ (Stoch)" if threshold == 1e10 else str(int(threshold)))
 
+    if data['n_runs'] > 1:
+        time_str = f"{data['mean_time']:.1f}±{data['std_time']:.1f}"
+    else:
+        time_str = f"{data['mean_time']:.1f}"
+
     print(f"{thresh_str:<15} {data['label']:<30} {data['n_runs']:<6} "
-          f"{peak_mean:<15.0f} {peak_std:<15.1f} {cv:>7.2%}")
+          f"{peak_mean:<15.0f} {peak_std:<12.1f} {cv:<8.2%} {time_str}")
 
 print(f"\n{'='*70}")
 print("Key findings:")
@@ -251,8 +287,8 @@ print(f"2. Fully stochastic peak: {stoch_peak:.0f} (mean over {results_dict[1e10
 print(f"3. Difference: {diff_pct:+.1f}%")
 print(f"4. Stochastic variability (CV): {results_dict[1e10]['std'][results_dict[1e10]['mean'].argmax()] / stoch_peak:.1%}")
 
-print(f"\nHybrid thresholds smoothly interpolate between deterministic and stochastic extremes.")
-print(f"Higher thresholds → more nodes stochastic → greater variability")
+print("\nHybrid thresholds smoothly interpolate between deterministic and stochastic extremes.")
+print("Higher thresholds → more nodes stochastic → greater variability")
 
 print(f"\n{'='*70}")
 print("Analysis complete!")

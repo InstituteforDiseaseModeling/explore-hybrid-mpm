@@ -24,38 +24,35 @@ Performance targets:
 - Much faster than pure NumPy loops via GPU parallelization
 """
 
-import matplotlib.pyplot as plt
+import time
+from dataclasses import dataclass
+from typing import Optional
+
 import numpy as np
 import taichi as ti
-from dataclasses import dataclass
 from scipy.stats import gamma, lognorm
-from typing import Literal, Optional
-import time
 
 # Import baseline components we'll reuse
 from SEIR_pde_metapop import (
-    ModelConfig,
-    generate_node_positions,
-    compute_distance_matrix,
-    generate_node_populations,
-    generate_node_betas,
     build_gravity_network,
-    setup_age_structure,
     build_P,
-    extract_timeseries,
+    compute_distance_matrix,
+    generate_node_betas,
+    generate_node_populations,
+    generate_node_positions,
     plot_heatmap,
-    plot_node_timeseries,
     plot_network,
+    plot_node_timeseries,
+    setup_age_structure,
 )
 
 # Import deterministic Taichi components
 from SEIR_pde_metapop_taichi import (
     TaichiModelConfig,
     TaichiSEIRState,
-    compute_infectious_pressure_kernel,
     compute_foi_kernel,
+    compute_infectious_pressure_kernel,
 )
-
 
 # ============================================================================
 # Stochastic Configuration
@@ -87,7 +84,13 @@ class StochasticModelConfig(TaichiModelConfig):
 
 
 def initialize_taichi_stochastic(config: StochasticModelConfig):
-    """Initialize Taichi backend with random seed for stochastic simulation."""
+    """
+    Initialize Taichi backend with random seed for stochastic simulation.
+
+    IMPORTANT: Taichi does not allow changing the random seed after initialization.
+    The seed can ONLY be set during ti.init(). This means we MUST reinitialize
+    for each replicate with a different seed, which includes kernel recompilation overhead.
+    """
     if config.backend == 'metal':
         ti.init(arch=ti.metal, debug=config.taichi_debug,
                 default_fp=ti.f64 if config.use_float64 else ti.f32,
@@ -107,17 +110,85 @@ def initialize_taichi_stochastic(config: StochasticModelConfig):
 
 
 # ============================================================================
+# Manual RNG Implementation (PCG32)
+# ============================================================================
+# Taichi's Metal backend does not properly respect the random_seed parameter.
+# We implement our own PRNG using PCG32 (Permuted Congruential Generator).
+# This ensures reproducible stochastic simulations across all backends.
+
+@ti.func
+def pcg32_init(seed: ti.u32, sequence: ti.u32) -> ti.u64:
+    """
+    Initialize PCG32 state from seed and sequence.
+    Returns 64-bit state value.
+    """
+    state = ti.u64(0)
+    state = state * ti.u64(6364136223846793005) + (ti.u64(sequence) << 1 | ti.u64(1))
+    state = state * ti.u64(6364136223846793005) + ti.u64(seed)
+    return state
+
+
+@ti.func
+def pcg32_random(state: ti.template()) -> ti.u32:
+    """
+    Generate next random uint32 using PCG32 algorithm.
+    Updates state in-place.
+    Returns random uint32.
+    """
+    oldstate = state[None]
+    # LCG step
+    state[None] = oldstate * ti.u64(6364136223846793005) + ti.u64(1)
+    # XSH-RR output function
+    xorshifted = ti.u32(((oldstate >> 18) ^ oldstate) >> 27)
+    rot = ti.u32(oldstate >> 59)
+    return (xorshifted >> rot) | (xorshifted << ((~rot + 1) & 31))
+
+
+@ti.func
+def pcg32_random_float(state: ti.template()) -> ti.f32:
+    """
+    Generate random float in [0, 1) using PCG32.
+    """
+    u = pcg32_random(state)
+    return ti.cast(u, ti.f32) / ti.cast(4294967296.0, ti.f32)  # u / 2^32
+
+
+# ============================================================================
 # Stochastic GPU Kernels
 # ============================================================================
 
 @ti.func
-def sample_poisson(lam: ti.f32) -> ti.f32:
+def pcg32_random_float_inplace(rng_states: ti.template(), node_idx: ti.i32) -> ti.f32:
+    """
+    Generate random float using PCG32 and update state in-place in global array.
+
+    Args:
+        rng_states: Global array of RNG states (one per node)
+        node_idx: Index of the node (selects which RNG state to use/update)
+
+    Returns:
+        Random float in [0, 1)
+    """
+    oldstate = rng_states[node_idx]
+    # LCG step
+    rng_states[node_idx] = oldstate * ti.u64(6364136223846793005) + ti.u64(1)
+    # XSH-RR output function
+    xorshifted = ti.u32(((oldstate >> 18) ^ oldstate) >> 27)
+    rot = ti.u32(oldstate >> 59)
+    u = (xorshifted >> rot) | (xorshifted << ((~rot + 1) & 31))
+    return ti.cast(u, ti.f32) / ti.cast(4294967296.0, ti.f32)
+
+
+@ti.func
+def sample_poisson(lam: ti.f32, rng_states: ti.template(), node_idx: ti.i32) -> ti.f32:
     """
     Sample from Poisson distribution using Knuth's algorithm for small lambda,
     or Normal approximation for large lambda.
 
     Args:
         lam: Poisson rate parameter (lambda)
+        rng_states: Global RNG states array
+        node_idx: Node index for RNG state
 
     Returns:
         Sample from Poisson(lam)
@@ -133,7 +204,7 @@ def sample_poisson(lam: ti.f32) -> ti.f32:
         # Loop until p drops below L
         for _ in range(1000):  # Max iterations to avoid infinite loop
             k += 1.0
-            p *= ti.random(ti.f32)
+            p *= pcg32_random_float_inplace(rng_states, node_idx)
             if p <= L:
                 break
 
@@ -142,8 +213,8 @@ def sample_poisson(lam: ti.f32) -> ti.f32:
     elif lam < 100.0:
         # Normal approximation for moderate lambda: N(lambda, sqrt(lambda))
         # Use Box-Muller transform to generate normal
-        u1 = ti.random(ti.f32)
-        u2 = ti.random(ti.f32)
+        u1 = pcg32_random_float_inplace(rng_states, node_idx)
+        u2 = pcg32_random_float_inplace(rng_states, node_idx)
         z = ti.sqrt(-2.0 * ti.log(u1)) * ti.cos(2.0 * 3.14159265 * u2)
         result = ti.max(0.0, ti.round(lam + ti.sqrt(lam) * z))
 
@@ -152,6 +223,14 @@ def sample_poisson(lam: ti.f32) -> ti.f32:
         result = lam
 
     return result
+
+
+@ti.kernel
+def init_rng_states(rng_states: ti.template(), seed: ti.i32):
+    """Initialize RNG state for each node using PCG32."""
+    n_nodes = rng_states.shape[0]
+    for node in range(n_nodes):
+        rng_states[node] = pcg32_init(ti.u32(seed), ti.u32(node))
 
 
 @ti.kernel
@@ -174,7 +253,8 @@ def compute_I_totals(I: ti.template(), I_total: ti.template()):
 def stochastic_step_kernel(S: ti.template(), E: ti.template(), I: ti.template(), R: ti.template(),
                           foi: ti.template(), dt: ti.f32, threshold: ti.f32, I_total: ti.template(),
                           theta_vals: ti.template(), P: ti.template(),
-                          sigma_rate: ti.f32, gamma_rate: ti.f32, aging_rates: ti.template()):
+                          sigma_rate: ti.f32, gamma_rate: ti.f32, aging_rates: ti.template(),
+                          rng_states: ti.template()):
     """
     Tau-leaping step for stochastic nodes (I_total < threshold).
 
@@ -198,8 +278,8 @@ def stochastic_step_kernel(S: ti.template(), E: ti.template(), I: ti.template(),
                 for theta_bin in range(n_bins):
                     rate = theta_vals[theta_bin] * foi[node] * S[node, age, theta_bin]
 
-                    # Sample from Poisson
-                    new_inf = sample_poisson(rate * dt)
+                    # Sample from Poisson using our RNG (modifies rng_states[node] in-place)
+                    new_inf = sample_poisson(rate * dt, rng_states, node)
                     new_inf = ti.min(new_inf, S[node, age, theta_bin])  # Can't exceed S
 
                     S[node, age, theta_bin] -= new_inf
@@ -213,7 +293,7 @@ def stochastic_step_kernel(S: ti.template(), E: ti.template(), I: ti.template(),
             for age in range(n_age):
                 for phi_bin in range(n_bins):
                     rate = sigma_rate * E[node, age, phi_bin]
-                    progressions = sample_poisson(rate * dt)
+                    progressions = sample_poisson(rate * dt, rng_states, node)
                     progressions = ti.min(progressions, E[node, age, phi_bin])
 
                     E[node, age, phi_bin] -= progressions
@@ -223,7 +303,7 @@ def stochastic_step_kernel(S: ti.template(), E: ti.template(), I: ti.template(),
             for age in range(n_age):
                 for phi_bin in range(n_bins):
                     rate = gamma_rate * I[node, age, phi_bin]
-                    recoveries = sample_poisson(rate * dt)
+                    recoveries = sample_poisson(rate * dt, rng_states, node)
                     recoveries = ti.min(recoveries, I[node, age, phi_bin])
 
                     I[node, age, phi_bin] -= recoveries
@@ -263,6 +343,7 @@ def stochastic_step_kernel(S: ti.template(), E: ti.template(), I: ti.template(),
                     E[node, age, bin_idx] = ti.max(E[node, age, bin_idx], 0.0)
                     I[node, age, bin_idx] = ti.max(I[node, age, bin_idx], 0.0)
                 R[node, age] = ti.max(R[node, age], 0.0)
+            # Note: RNG state is updated in-place by sample_poisson
 
 
 @ti.func
@@ -419,7 +500,7 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
     print("="*70)
     print("Hybrid Stochastic/Deterministic SEIR Simulation (Taichi GPU)")
     print("="*70)
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  n_nodes: {config.n_nodes}")
     print(f"  n_age: {config.n_age}")
     print(f"  n_bins: {config.n_bins}")
@@ -520,6 +601,11 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
     dtype_ti = ti.f64 if config.use_float64 else ti.f32
     I_total_field = ti.field(dtype=dtype_ti, shape=config.n_nodes)
 
+    # RNG states for stochastic simulation (one per node)
+    rng_states = ti.field(dtype=ti.u64, shape=config.n_nodes)
+    # Initialize RNG state for each node using PCG32 (must be done in a kernel)
+    init_rng_states(rng_states, config.stochastic_seed)
+
     # RK4 temporary storage (k1, k2, k3, k4 for each compartment, plus temp states)
     k1_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
     k1_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
@@ -584,7 +670,8 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
             gpu_state.S, gpu_state.E, gpu_state.I, gpu_state.R,
             gpu_state.foi, config.tau_leap_dt, config.stochastic_threshold, I_total_field,
             gpu_state.theta_vals, gpu_state.P,
-            config.sigma_rate, config.gamma_rate, gpu_state.aging_rates
+            config.sigma_rate, config.gamma_rate, gpu_state.aging_rates,
+            rng_states
         )
 
         # Advance deterministic nodes with RK4
@@ -654,6 +741,11 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
 
 def main():
     """Run hybrid stochastic simulation with default configuration."""
+    from pathlib import Path
+
+    # Ensure figures directory exists
+    figures_dir = Path(__file__).parent.parent / 'figures'
+    figures_dir.mkdir(exist_ok=True)
 
     config = StochasticModelConfig(
         n_nodes=774,
@@ -674,10 +766,10 @@ def main():
 
     # Visualize
     print("\nGenerating visualizations...")
-    plot_heatmap(results, 'metapop_heatmap_stochastic.pdf')
+    plot_heatmap(results, str(figures_dir / 'metapop_heatmap_stochastic.pdf'))
     if config.n_nodes <= 20:
-        plot_node_timeseries(results, 'metapop_timeseries_stochastic.pdf')
-    plot_network(results, 'metapop_network_stochastic.pdf')
+        plot_node_timeseries(results, str(figures_dir / 'metapop_timeseries_stochastic.pdf'))
+    plot_network(results, str(figures_dir / 'metapop_network_stochastic.pdf'))
 
     print("\nDone!")
 

@@ -65,5 +65,12 @@ optuna*.db
 # Symlinks
 symlinks/
 
-# PDF output (optional - uncomment if you don't want to track generated figures)
-# figures/*.pdf
+# Generated figures (uncomment to ignore generated PDFs)
+figures/*.pdf
+# Keep key example figures
+!figures/quick_example.pdf
+!figures/threshold_comparison.pdf
+!figures/threshold_individual_realizations.pdf
+!figures/age_dynamics_seed_node.pdf
+!figures/metapop_heatmap.pdf
+!figures/metapop_heatmap_taichi.pdf

@@ -8,9 +8,11 @@ Tests:
 4. Fade-out behavior in small nodes
 """
 
-import numpy as np
 from dataclasses import replace
-from SEIR_pde_metapop import ModelConfig, run_simulation, extract_timeseries
+
+import numpy as np
+
+from SEIR_pde_metapop import ModelConfig, extract_timeseries, run_simulation
 from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
 
 print("="*70)
@@ -67,7 +69,7 @@ rel_diff = np.abs(I_baseline_total - I_stoch_total) / (I_baseline_total + 1e-10)
 max_rel_diff = rel_diff.max()
 mean_rel_diff = rel_diff.mean()
 
-print(f"\nComparison of total infectious counts:")
+print("\nComparison of total infectious counts:")
 print(f"  Max relative difference: {max_rel_diff:.2e}")
 print(f"  Mean relative difference: {mean_rel_diff:.2e}")
 
@@ -158,7 +160,7 @@ peak_time_idx = I_trajectories.mean(axis=0).argmax()
 I_at_peak = I_trajectories[:, peak_time_idx]
 cv_at_peak = I_at_peak.std() / I_at_peak.mean()
 
-print(f"\nVariability across realizations:")
+print("\nVariability across realizations:")
 print(f"  Mean peak infectious: {I_at_peak.mean():.0f}")
 print(f"  Std dev at peak: {I_at_peak.std():.0f}")
 print(f"  Coefficient of variation: {cv_at_peak:.2%}")
@@ -209,14 +211,14 @@ for node in range(config_fadeout.n_nodes):
         if I_node[t-1] < 0.1 and I_node[t] > 1.0:
             n_reintroductions += 1
 
-print(f"\nFade-out dynamics:")
+print("\nFade-out dynamics:")
 print(f"  Number of fade-outs (I → 0): {n_fadeouts}")
 print(f"  Number of reintroductions (0 → I): {n_reintroductions}")
 
 if n_fadeouts > 0:
-    print(f"  ✓ PASS: Stochastic fade-out observed")
+    print("  ✓ PASS: Stochastic fade-out observed")
 else:
-    print(f"  ✗ WARNING: No fade-outs observed (may need longer simulation or more nodes)")
+    print("  ✗ WARNING: No fade-outs observed (may need longer simulation or more nodes)")
 
 # ============================================================================
 # Summary

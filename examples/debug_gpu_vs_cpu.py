@@ -2,11 +2,12 @@
 Debug script to compare GPU vs CPU intermediate values.
 """
 
-import numpy as np
 from dataclasses import asdict
+
+import numpy as np
+
 from SEIR_pde_metapop import ModelConfig, run_simulation
-from SEIR_pde_metapop_taichi import TaichiModelConfig, run_simulation_taichi, initialize_taichi
-import taichi as ti
+from SEIR_pde_metapop_taichi import TaichiModelConfig, initialize_taichi, run_simulation_taichi
 
 # Small configuration for debugging
 config = ModelConfig(
@@ -53,13 +54,13 @@ E_gpu = y0_gpu[n_SEI:2*n_SEI].reshape((config.n_nodes, config.n_age, config.n_bi
 I_gpu = y0_gpu[2*n_SEI:3*n_SEI].reshape((config.n_nodes, config.n_age, config.n_bins))
 R_gpu = y0_gpu[3*n_SEI:].reshape((config.n_nodes, config.n_age))
 
-print(f"\nInitial state comparison:")
+print("\nInitial state comparison:")
 print(f"  S max diff: {np.abs(S_cpu - S_gpu).max():.2e}")
 print(f"  E max diff: {np.abs(E_cpu - E_gpu).max():.2e}")
 print(f"  I max diff: {np.abs(I_cpu - I_gpu).max():.2e}")
 print(f"  R max diff: {np.abs(R_cpu - R_gpu).max():.2e}")
 
-print(f"\nI compartment (seed node, age 0):")
+print("\nI compartment (seed node, age 0):")
 print(f"  CPU: {I_cpu[0, 0, :]}")
 print(f"  GPU: {I_gpu[0, 0, :]}")
 
@@ -82,19 +83,19 @@ dEdt_gpu = dydt_gpu[n_SEI:2*n_SEI].reshape((config.n_nodes, config.n_age, config
 dIdt_gpu = dydt_gpu[2*n_SEI:3*n_SEI].reshape((config.n_nodes, config.n_age, config.n_bins))
 dRdt_gpu = dydt_gpu[3*n_SEI:].reshape((config.n_nodes, config.n_age))
 
-print(f"\nDerivatives comparison:")
+print("\nDerivatives comparison:")
 print(f"  dSdt max diff: {np.abs(dSdt_cpu - dSdt_gpu).max():.2e}")
 print(f"  dEdt max diff: {np.abs(dEdt_cpu - dEdt_gpu).max():.2e}")
 print(f"  dIdt max diff: {np.abs(dIdt_cpu - dIdt_gpu).max():.2e}")
 print(f"  dRdt max diff: {np.abs(dRdt_cpu - dRdt_gpu).max():.2e}")
 
 # Show where the differences are largest
-print(f"\ndSdt (node 0, age 0):")
+print("\ndSdt (node 0, age 0):")
 print(f"  CPU: {dSdt_cpu[0, 0, :]}")
 print(f"  GPU: {dSdt_gpu[0, 0, :]}")
 print(f"  Diff: {dSdt_cpu[0, 0, :] - dSdt_gpu[0, 0, :]}")
 
-print(f"\ndEdt (node 0, age 0):")
+print("\ndEdt (node 0, age 0):")
 print(f"  CPU: {dEdt_cpu[0, 0, :]}")
 print(f"  GPU: {dEdt_gpu[0, 0, :]}")
 print(f"  Diff: {dEdt_cpu[0, 0, :] - dEdt_gpu[0, 0, :]}")
@@ -108,7 +109,7 @@ P_gpu = results_gpu['aux']['P']
 
 print(f"P matrix shape: {P_cpu.shape}")
 print(f"P max diff: {np.abs(P_cpu - P_gpu).max():.2e}")
-print(f"\nP matrix (CPU):")
+print("\nP matrix (CPU):")
 print(P_cpu)
 
 # Manually compute P.T @ new_infections to verify
@@ -121,7 +122,7 @@ for theta_bin in range(config.n_bins):
     for phi_bin in range(config.n_bins):
         new_E_gpu_style[phi_bin] += P_cpu[theta_bin, phi_bin] * new_inf_manual[theta_bin]
 
-print(f"\nManual P.T @ new_infections comparison:")
+print("\nManual P.T @ new_infections comparison:")
 print(f"  Baseline (P.T @ x): {new_E_baseline}")
 print(f"  GPU style (sum P[i,j]*x[i]): {new_E_gpu_style}")
 print(f"  Difference: {new_E_baseline - new_E_gpu_style}")

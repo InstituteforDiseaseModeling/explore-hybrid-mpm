@@ -15,31 +15,29 @@ Performance targets:
 - n_nodes=1000: 30-50× speedup
 """
 
-import matplotlib.pyplot as plt
+import time
+from dataclasses import dataclass
+from typing import Literal
+
 import numpy as np
 import taichi as ti
-from dataclasses import dataclass, field
 from scipy.integrate import solve_ivp
 from scipy.stats import gamma, lognorm
-from typing import Literal, Optional
-import time
 
 # Import baseline components we'll reuse
 from SEIR_pde_metapop import (
     ModelConfig,
-    generate_node_positions,
-    compute_distance_matrix,
-    generate_node_populations,
-    generate_node_betas,
     build_gravity_network,
-    setup_age_structure,
     build_P,
-    extract_timeseries,
+    compute_distance_matrix,
+    generate_node_betas,
+    generate_node_populations,
+    generate_node_positions,
     plot_heatmap,
-    plot_node_timeseries,
     plot_network,
+    plot_node_timeseries,
+    setup_age_structure,
 )
-
 
 # ============================================================================
 # GPU Configuration
@@ -60,15 +58,24 @@ class TaichiModelConfig(ModelConfig):
 
 def initialize_taichi(config: TaichiModelConfig):
     """Initialize Taichi backend."""
-    if config.backend == 'metal':
-        ti.init(arch=ti.metal, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
-    elif config.backend == 'cuda':
-        ti.init(arch=ti.cuda, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
-    else:
-        ti.init(arch=ti.cpu, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
+    # Try to initialize Taichi - if already initialized, skip
+    # This prevents expensive reinitialization overhead when running multiple simulations
+    try:
+        if config.backend == 'metal':
+            ti.init(arch=ti.metal, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
+        elif config.backend == 'cuda':
+            ti.init(arch=ti.cuda, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
+        else:
+            ti.init(arch=ti.cpu, debug=config.taichi_debug, default_fp=ti.f64 if config.use_float64 else ti.f32)
 
-    print(f"  Taichi backend: {config.backend}")
-    print(f"  Precision: {'float64' if config.use_float64 else 'float32'}")
+        print(f"  Taichi backend: {config.backend}")
+        print(f"  Precision: {'float64' if config.use_float64 else 'float32'}")
+    except RuntimeError as e:
+        # Taichi already initialized - skip
+        if "Taichi has already been initialized" in str(e):
+            print(f"  Taichi already initialized ({config.backend})")
+        else:
+            raise
 
 
 # ============================================================================
@@ -154,7 +161,6 @@ class TaichiSEIRState:
     def load_from_flat(self, y_flat):
         """Load flat NumPy array from solve_ivp into GPU state."""
         n_SEI = self.n_nodes * self.n_age * self.n_bins
-        n_R = self.n_nodes * self.n_age
 
         dtype_np = np.float64 if self.dtype == ti.f64 else np.float32
 
@@ -336,7 +342,7 @@ def run_simulation_taichi(config: TaichiModelConfig, spatial_seed: int = 42,
     print("="*70)
     print("GPU-Accelerated Multi-Node SEIR Simulation (Taichi)")
     print("="*70)
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  n_nodes: {config.n_nodes}")
     print(f"  n_age: {config.n_age}")
     print(f"  n_bins: {config.n_bins}")
@@ -483,6 +489,11 @@ def run_simulation_taichi(config: TaichiModelConfig, spatial_seed: int = 42,
 
 def main():
     """Run GPU-accelerated simulation with default configuration."""
+    from pathlib import Path
+
+    # Ensure figures directory exists
+    figures_dir = Path(__file__).parent.parent / 'figures'
+    figures_dir.mkdir(exist_ok=True)
 
     config = TaichiModelConfig(
         n_nodes=774,
@@ -499,10 +510,10 @@ def main():
 
     # Visualize
     print("\nGenerating visualizations...")
-    plot_heatmap(results, 'metapop_heatmap_taichi.pdf')
+    plot_heatmap(results, str(figures_dir / 'metapop_heatmap_taichi.pdf'))
     if config.n_nodes <= 20:
-        plot_node_timeseries(results, 'metapop_timeseries_taichi.pdf')
-    plot_network(results, 'metapop_network_taichi.pdf')
+        plot_node_timeseries(results, str(figures_dir / 'metapop_timeseries_taichi.pdf'))
+    plot_network(results, str(figures_dir / 'metapop_network_taichi.pdf'))
 
     print("\nDone!")
 

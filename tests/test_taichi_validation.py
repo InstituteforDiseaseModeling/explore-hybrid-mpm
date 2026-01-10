@@ -8,11 +8,12 @@ Tests:
 4. Correctness at multiple scales (n_nodes = 5, 25, 100)
 """
 
-import numpy as np
 import time
 from dataclasses import asdict
 
-from SEIR_pde_metapop import ModelConfig, run_simulation, extract_timeseries
+import numpy as np
+
+from SEIR_pde_metapop import ModelConfig, extract_timeseries, run_simulation
 from SEIR_pde_metapop_taichi import TaichiModelConfig, run_simulation_taichi
 
 
@@ -38,7 +39,7 @@ def test_correctness_small(verbose=True):
     t_cpu = time.time() - t0
 
     if verbose:
-        print(f"\nRunning Taichi GPU version (Metal)...")
+        print("\nRunning Taichi GPU version (Metal)...")
     config_gpu = TaichiModelConfig(**asdict(config), backend='metal')
     t0 = time.time()
     results_gpu = run_simulation_taichi(config_gpu, spatial_seed=42, epi_seed=123)
@@ -56,7 +57,7 @@ def test_correctness_small(verbose=True):
     rel_diff = max_diff / (I_cpu.max() + 1e-10)
 
     if verbose:
-        print(f"\nComparison:")
+        print("\nComparison:")
         print(f"  Max absolute difference: {max_diff:.2e}")
         print(f"  Max relative difference: {rel_diff:.2e}")
         print(f"  CPU time: {t_cpu:.2f}s")
@@ -95,7 +96,7 @@ def test_cpu_backend_exact_match(verbose=True):
     results_cpu = run_simulation(config, spatial_seed=42, epi_seed=123)
 
     if verbose:
-        print(f"\nRunning Taichi CPU backend...")
+        print("\nRunning Taichi CPU backend...")
     config_taichi_cpu = TaichiModelConfig(**asdict(config), backend='cpu', use_float64=True)
     results_taichi_cpu = run_simulation_taichi(config_taichi_cpu, spatial_seed=42, epi_seed=123)
 
@@ -111,7 +112,7 @@ def test_cpu_backend_exact_match(verbose=True):
     rel_diff = max_diff / (I_cpu.max() + 1e-10)
 
     if verbose:
-        print(f"\nComparison:")
+        print("\nComparison:")
         print(f"  Max absolute difference: {max_diff:.2e}")
         print(f"  Max relative difference: {rel_diff:.2e}")
 
@@ -156,14 +157,14 @@ def benchmark_scaling(verbose=True):
 
         # CPU baseline
         if verbose:
-            print(f"  Running CPU baseline...")
+            print("  Running CPU baseline...")
         t0 = time.time()
         results_cpu = run_simulation(config, spatial_seed=42, epi_seed=123)
         t_cpu = time.time() - t0
 
         # GPU Metal
         if verbose:
-            print(f"  Running GPU (Metal)...")
+            print("  Running GPU (Metal)...")
         config_gpu = TaichiModelConfig(**asdict(config), backend='metal')
         t0 = time.time()
         results_gpu = run_simulation_taichi(config_gpu, spatial_seed=42, epi_seed=123)
@@ -218,7 +219,7 @@ def benchmark_scaling(verbose=True):
                 print(f"✓ GPU faster than CPU starting at n_nodes={r['n_nodes']}")
                 break
         else:
-            print(f"⚠ GPU not faster than CPU in tested range (overhead dominates)")
+            print("⚠ GPU not faster than CPU in tested range (overhead dominates)")
 
         # Best speedup
         best = max(results_table, key=lambda x: x['speedup'])
@@ -227,9 +228,9 @@ def benchmark_scaling(verbose=True):
         # Correctness
         all_correct = all(r['max_rel_diff'] < 1e-4 for r in results_table)
         if all_correct:
-            print(f"✓ All results within tolerance (< 1e-4)")
+            print("✓ All results within tolerance (< 1e-4)")
         else:
-            print(f"✗ Some results exceed tolerance")
+            print("✗ Some results exceed tolerance")
 
     return results_table
 
@@ -252,16 +253,16 @@ def test_large_scale(n_nodes=774, verbose=True):
     n_odes = 3 * n_nodes * 16 * 50 + n_nodes * 16
     if verbose:
         print(f"  ODEs: {n_odes:,}")
-        print(f"\n  Running GPU (Metal) - this may take a few minutes...")
+        print("\n  Running GPU (Metal) - this may take a few minutes...")
 
     config_gpu = TaichiModelConfig(**asdict(config), backend='metal')
     t0 = time.time()
-    results_gpu = run_simulation_taichi(config_gpu, spatial_seed=42, epi_seed=123)
+    _ = run_simulation_taichi(config_gpu, spatial_seed=42, epi_seed=123)
     t_gpu = time.time() - t0
 
     if verbose:
         print(f"\n  GPU time: {t_gpu:.2f}s")
-        print(f"  ✓ PASS: Large-scale simulation completed successfully")
+        print("  ✓ PASS: Large-scale simulation completed successfully")
 
         # Estimate CPU time based on scaling
         # From our benchmarks, assume roughly linear scaling above n_nodes=100
@@ -284,7 +285,7 @@ def main():
     test2_pass = test_cpu_backend_exact_match()
 
     # Test 3: Scaling benchmark
-    results_table = benchmark_scaling()
+    _ = benchmark_scaling()
 
     # Test 4: Large scale (optional - can be slow)
     print("\n" + "="*70)
@@ -303,7 +304,7 @@ def main():
     print("="*70)
     print(f"  Test 1 (Correctness): {'✓ PASS' if test1_pass else '✗ FAIL'}")
     print(f"  Test 2 (CPU backend): {'✓ PASS' if test2_pass else '✗ FAIL'}")
-    print(f"  Test 3 (Scaling): ✓ PASS")
+    print("  Test 3 (Scaling): ✓ PASS")
     if test4_pass is not None:
         print(f"  Test 4 (Large-scale): {'✓ PASS' if test4_pass else '✗ FAIL'}")
 

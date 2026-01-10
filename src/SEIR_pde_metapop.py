@@ -9,13 +9,13 @@ Author: Dan Klein
 Date: 2025-12-17
 """
 
-import matplotlib.pyplot as plt
-import numpy as np
 from dataclasses import dataclass
-from scipy.integrate import solve_ivp
-from scipy.stats import gamma, lognorm, powerlaw
 from typing import Literal, Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.integrate import solve_ivp
+from scipy.stats import gamma, lognorm, powerlaw
 
 # ============================================================================
 # Configuration
@@ -32,7 +32,7 @@ class ModelConfig:
 
     # Population distribution
     pop_dist_type: Literal['lognormal', 'powerlaw', 'uniform'] = 'lognormal'
-    pop_dist_params: dict = None  # e.g., {'mu': 10, 'sigma': 1.5} for lognormal
+    pop_dist_params: dict | None = None  # e.g., {'mu': 10, 'sigma': 1.5} for lognormal
     N_total: int = 186_763
 
     # Heterogeneity discretization
@@ -197,7 +197,7 @@ def compute_distance_matrix(positions: np.ndarray) -> np.ndarray:
 
 
 def generate_node_populations(n_nodes: int, N_total: int, dist_type: str,
-                              dist_params: dict, seed: Optional[int] = None) -> np.ndarray:
+                              dist_params: dict | None, seed: Optional[int] = None) -> np.ndarray:
     """
     Generate node populations from specified distribution.
 
@@ -205,7 +205,7 @@ def generate_node_populations(n_nodes: int, N_total: int, dist_type: str,
         n_nodes: Number of nodes
         N_total: Total population across all nodes
         dist_type: 'lognormal', 'powerlaw', or 'uniform'
-        dist_params: Distribution parameters
+        dist_params: Distribution parameters (or None for defaults)
         seed: Random seed
 
     Returns:
@@ -213,6 +213,9 @@ def generate_node_populations(n_nodes: int, N_total: int, dist_type: str,
     """
     if seed is not None:
         np.random.seed(seed)
+
+    if dist_params is None:
+        dist_params = {}
 
     if dist_type == 'uniform':
         pops = np.ones(n_nodes)
@@ -370,7 +373,7 @@ def build_gravity_network(populations: np.ndarray, distances: np.ndarray,
 # Age Structure
 # ============================================================================
 
-def setup_age_structure(n_age: int, N_total: float) -> tuple[np.ndarray, np.ndarray]:
+def setup_age_structure(n_age: int, N_total: float) -> tuple[list[str], np.ndarray, np.ndarray]:
     """
     Setup age bins and population distribution.
 
@@ -381,6 +384,7 @@ def setup_age_structure(n_age: int, N_total: float) -> tuple[np.ndarray, np.ndar
     Returns:
         age_labels: List of age group labels
         age_counts: Population counts per age group
+        aging_rates: Aging rates per age group
     """
     age_labels = [f"{a}-{a+1}" for a in range(n_age-1)] + [f"{n_age-1}+"]
     age_counts = np.ones(n_age)
@@ -774,7 +778,7 @@ def plot_heatmap(results: dict, output_file: str = 'metapop_heatmap.pdf'):
 
     fig, ax = plt.subplots(figsize=(12, 6))
     im = ax.imshow(prevalence, aspect='auto', cmap='YlOrRd',
-                   extent=[time[0], time[-1], results['config'].n_nodes, 0],
+                   extent=(time[0], time[-1], results['config'].n_nodes, 0),
                    interpolation='nearest')
 
     ax.set_xlabel('Time (days)')
@@ -904,6 +908,11 @@ def plot_network(results: dict, output_file: str = 'metapop_network.pdf'):
 
 def main():
     """Run multi-node SEIR simulation with default configuration."""
+    from pathlib import Path
+
+    # Ensure figures directory exists
+    figures_dir = Path(__file__).parent.parent / 'figures'
+    figures_dir.mkdir(exist_ok=True)
 
     # Configure model
     config = ModelConfig(
@@ -927,7 +936,7 @@ def main():
     print("="*70)
     print("Multi-Node Meta-Population SEIR Model")
     print("="*70)
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  n_nodes: {config.n_nodes}")
     print(f"  n_age: {config.n_age}")
     print(f"  n_bins: {config.n_bins}")
@@ -940,9 +949,9 @@ def main():
 
     # Create visualizations
     print("\nGenerating visualizations...")
-    plot_heatmap(results, 'metapop_heatmap.pdf')
-    plot_node_timeseries(results, 'metapop_timeseries.pdf')
-    plot_network(results, 'metapop_network.pdf')
+    plot_heatmap(results, str(figures_dir / 'metapop_heatmap.pdf'))
+    plot_node_timeseries(results, str(figures_dir / 'metapop_timeseries.pdf'))
+    plot_network(results, str(figures_dir / 'metapop_network.pdf'))
 
     print("\nDone!")
     print("="*70)
