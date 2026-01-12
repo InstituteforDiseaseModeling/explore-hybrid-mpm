@@ -68,6 +68,12 @@ class StochasticModelConfig(TaichiModelConfig):
     # - Scaled: max(10, 0.001 * N_node) for population-dependent switching
     # - Prevalence: I_total / N_node < 0.0001 for prevalence-based switching
 
+    # Deterministic integration method (for nodes above threshold)
+    deterministic_method: str = 'rk4'  # Options: 'euler', 'rk2', 'rk4'
+    # - 'euler': 1 stage, fastest, least accurate (1× tau-leap cost)
+    # - 'rk2': 2 stages, good balance (2× tau-leap cost)
+    # - 'rk4': 4 stages, most accurate (4× tau-leap cost)
+
     # Time-stepping
     tau_leap_dt: float = 0.5  # Internal time step (days)
     output_freq_days: float = 1.0  # Save output frequency
@@ -476,6 +482,81 @@ def deterministic_step_rk4_kernel(S: ti.template(), E: ti.template(), I: ti.temp
                                             2.0 * k3_R[node, age] + k4_R[node, age]))
 
 
+@ti.kernel
+def deterministic_step_rk2_kernel(S: ti.template(), E: ti.template(), I: ti.template(), R: ti.template(),
+                                  foi: ti.template(), dt: ti.f32, threshold: ti.f32, I_total: ti.template(),
+                                  theta_vals: ti.template(), P: ti.template(),
+                                  sigma_rate: ti.f32, gamma_rate: ti.f32, aging_rates: ti.template(),
+                                  # Temporary storage for RK2
+                                  k1_S: ti.template(), k1_E: ti.template(), k1_I: ti.template(), k1_R: ti.template(),
+                                  k2_S: ti.template(), k2_E: ti.template(), k2_I: ti.template(), k2_R: ti.template(),
+                                  S_temp: ti.template(), E_temp: ti.template(), I_temp: ti.template(), R_temp: ti.template()):
+    """
+    RK2 (Midpoint) step for deterministic nodes (I_total >= threshold).
+    2 stages instead of 4 → ~2× faster than RK4, still 2nd-order accurate.
+    """
+    n_nodes, n_age, n_bins = S.shape
+
+    for node in range(n_nodes):
+        # Only process deterministic nodes
+        if I_total[node] >= threshold:
+            # === RK2 Stage 1: k1 = f(y_n) ===
+            compute_node_derivatives(node, n_age, n_bins, S, E, I, R,
+                                   foi[node], theta_vals, P, sigma_rate, gamma_rate, aging_rates,
+                                   k1_S, k1_E, k1_I, k1_R)
+
+            # Compute y + dt/2 * k1 (with clamping to prevent negative values)
+            for age, bin_idx in ti.ndrange(n_age, n_bins):
+                S_temp[node, age, bin_idx] = ti.max(0.0, S[node, age, bin_idx] + 0.5 * dt * k1_S[node, age, bin_idx])
+                E_temp[node, age, bin_idx] = ti.max(0.0, E[node, age, bin_idx] + 0.5 * dt * k1_E[node, age, bin_idx])
+                I_temp[node, age, bin_idx] = ti.max(0.0, I[node, age, bin_idx] + 0.5 * dt * k1_I[node, age, bin_idx])
+            for age in range(n_age):
+                R_temp[node, age] = ti.max(0.0, R[node, age] + 0.5 * dt * k1_R[node, age])
+
+            # === RK2 Stage 2: k2 = f(y_n + dt/2 * k1) ===
+            compute_node_derivatives(node, n_age, n_bins, S_temp, E_temp, I_temp, R_temp,
+                                   foi[node], theta_vals, P, sigma_rate, gamma_rate, aging_rates,
+                                   k2_S, k2_E, k2_I, k2_R)
+
+            # === Final update: y_{n+1} = y_n + dt * k2 ===
+            for age, bin_idx in ti.ndrange(n_age, n_bins):
+                S[node, age, bin_idx] = ti.max(0.0, S[node, age, bin_idx] + dt * k2_S[node, age, bin_idx])
+                E[node, age, bin_idx] = ti.max(0.0, E[node, age, bin_idx] + dt * k2_E[node, age, bin_idx])
+                I[node, age, bin_idx] = ti.max(0.0, I[node, age, bin_idx] + dt * k2_I[node, age, bin_idx])
+            for age in range(n_age):
+                R[node, age] = ti.max(0.0, R[node, age] + dt * k2_R[node, age])
+
+
+@ti.kernel
+def deterministic_step_euler_kernel(S: ti.template(), E: ti.template(), I: ti.template(), R: ti.template(),
+                                    foi: ti.template(), dt: ti.f32, threshold: ti.f32, I_total: ti.template(),
+                                    theta_vals: ti.template(), P: ti.template(),
+                                    sigma_rate: ti.f32, gamma_rate: ti.f32, aging_rates: ti.template(),
+                                    # Temporary storage for derivatives
+                                    dS: ti.template(), dE: ti.template(), dI: ti.template(), dR: ti.template()):
+    """
+    Forward Euler step for deterministic nodes (I_total >= threshold).
+    1 stage → fastest, but least accurate (only 1st-order).
+    """
+    n_nodes, n_age, n_bins = S.shape
+
+    for node in range(n_nodes):
+        # Only process deterministic nodes
+        if I_total[node] >= threshold:
+            # Compute derivatives
+            compute_node_derivatives(node, n_age, n_bins, S, E, I, R,
+                                   foi[node], theta_vals, P, sigma_rate, gamma_rate, aging_rates,
+                                   dS, dE, dI, dR)
+
+            # Apply Euler update: y_{n+1} = y_n + dt * f(y_n)
+            for age, bin_idx in ti.ndrange(n_age, n_bins):
+                S[node, age, bin_idx] = ti.max(0.0, S[node, age, bin_idx] + dt * dS[node, age, bin_idx])
+                E[node, age, bin_idx] = ti.max(0.0, E[node, age, bin_idx] + dt * dE[node, age, bin_idx])
+                I[node, age, bin_idx] = ti.max(0.0, I[node, age, bin_idx] + dt * dI[node, age, bin_idx])
+            for age in range(n_age):
+                R[node, age] = ti.max(0.0, R[node, age] + dt * dR[node, age])
+
+
 # ============================================================================
 # Hybrid Integration Loop
 # ============================================================================
@@ -506,6 +587,7 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
     print(f"  n_bins: {config.n_bins}")
     print(f"  gravity_k: {config.gravity_k}")
     print(f"  stochastic_threshold: {config.stochastic_threshold}")
+    print(f"  deterministic_method: {config.deterministic_method}")
     print(f"  tau_leap_dt: {config.tau_leap_dt} days")
     print(f"  output_freq: {config.output_freq_days} days")
 
@@ -606,31 +688,48 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
     # Initialize RNG state for each node using PCG32 (must be done in a kernel)
     init_rng_states(rng_states, config.stochastic_seed)
 
-    # RK4 temporary storage (k1, k2, k3, k4 for each compartment, plus temp states)
+    # Allocate temporary storage based on deterministic method
+    # Validate method selection
+    if config.deterministic_method not in ['euler', 'rk2', 'rk4']:
+        raise ValueError(f"Invalid deterministic_method: {config.deterministic_method}. Choose from: 'euler', 'rk2', 'rk4'")
+
+    # All methods need at least k1 (derivative storage)
     k1_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
     k1_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
     k1_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
     k1_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
 
-    k2_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k2_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k2_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k2_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+    # RK2 and RK4 need k2
+    if config.deterministic_method in ['rk2', 'rk4']:
+        k2_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k2_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k2_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k2_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
 
-    k3_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k3_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k3_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k3_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+        S_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        E_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        I_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        R_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+    else:
+        # Euler doesn't need these, but create dummy refs for consistency
+        k2_S = k2_E = k2_I = k2_R = None
+        S_temp = E_temp = I_temp = R_temp = None
 
-    k4_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k4_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k4_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    k4_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+    # RK4 needs k3 and k4
+    if config.deterministic_method == 'rk4':
+        k3_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k3_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k3_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k3_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
 
-    S_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    E_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    I_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
-    R_temp = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+        k4_S = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k4_E = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k4_I = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age, config.n_bins))
+        k4_R = ti.field(dtype=dtype_ti, shape=(config.n_nodes, config.n_age))
+    else:
+        # RK2 and Euler don't need these
+        k3_S = k3_E = k3_I = k3_R = None
+        k4_S = k4_E = k4_I = k4_R = None
 
     t_setup = time.time() - t_start_setup
 
@@ -674,18 +773,37 @@ def run_simulation_stochastic(config: StochasticModelConfig, spatial_seed: int =
             rng_states
         )
 
-        # Advance deterministic nodes with RK4
-        deterministic_step_rk4_kernel(
-            gpu_state.S, gpu_state.E, gpu_state.I, gpu_state.R,
-            gpu_state.foi, config.tau_leap_dt, config.stochastic_threshold, I_total_field,
-            gpu_state.theta_vals, gpu_state.P,
-            config.sigma_rate, config.gamma_rate, gpu_state.aging_rates,
-            k1_S, k1_E, k1_I, k1_R,
-            k2_S, k2_E, k2_I, k2_R,
-            k3_S, k3_E, k3_I, k3_R,
-            k4_S, k4_E, k4_I, k4_R,
-            S_temp, E_temp, I_temp, R_temp
-        )
+        # Advance deterministic nodes with selected method
+        if config.deterministic_method == 'euler':
+            deterministic_step_euler_kernel(
+                gpu_state.S, gpu_state.E, gpu_state.I, gpu_state.R,
+                gpu_state.foi, config.tau_leap_dt, config.stochastic_threshold, I_total_field,
+                gpu_state.theta_vals, gpu_state.P,
+                config.sigma_rate, config.gamma_rate, gpu_state.aging_rates,
+                k1_S, k1_E, k1_I, k1_R  # Euler uses k1 for derivative storage
+            )
+        elif config.deterministic_method == 'rk2':
+            deterministic_step_rk2_kernel(
+                gpu_state.S, gpu_state.E, gpu_state.I, gpu_state.R,
+                gpu_state.foi, config.tau_leap_dt, config.stochastic_threshold, I_total_field,
+                gpu_state.theta_vals, gpu_state.P,
+                config.sigma_rate, config.gamma_rate, gpu_state.aging_rates,
+                k1_S, k1_E, k1_I, k1_R,
+                k2_S, k2_E, k2_I, k2_R,
+                S_temp, E_temp, I_temp, R_temp
+            )
+        else:  # rk4
+            deterministic_step_rk4_kernel(
+                gpu_state.S, gpu_state.E, gpu_state.I, gpu_state.R,
+                gpu_state.foi, config.tau_leap_dt, config.stochastic_threshold, I_total_field,
+                gpu_state.theta_vals, gpu_state.P,
+                config.sigma_rate, config.gamma_rate, gpu_state.aging_rates,
+                k1_S, k1_E, k1_I, k1_R,
+                k2_S, k2_E, k2_I, k2_R,
+                k3_S, k3_E, k3_I, k3_R,
+                k4_S, k4_E, k4_I, k4_R,
+                S_temp, E_temp, I_temp, R_temp
+            )
 
         t += config.tau_leap_dt
         step += 1
