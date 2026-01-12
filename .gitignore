@@ -71,6 +71,7 @@ figures/*.pdf
 !figures/quick_example.pdf
 !figures/threshold_comparison.pdf
 !figures/threshold_individual_realizations.pdf
+!figures/timestep_stability.pdf
 !figures/age_dynamics_seed_node.pdf
 !figures/metapop_heatmap.pdf
 !figures/metapop_heatmap_taichi.pdf
