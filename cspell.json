@@ -140,6 +140,8 @@
     "takeoff",
     "timepoints",
     "timeseries",
+    "timescale",
+    "timescales",
     "timestep",
     "timesteps",
     "traj",

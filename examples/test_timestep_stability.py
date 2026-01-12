@@ -4,9 +4,10 @@ Test integration stability and accuracy across different timesteps.
 Shows how method accuracy degrades as dt increases relative to characteristic timescales.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 from SEIR_pde_metapop import extract_timeseries
 from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simulation_stochastic
@@ -20,9 +21,9 @@ print("="*70)
 
 # Characteristic timescales from config
 print("\nCharacteristic timescales:")
-print(f"  Latent period (E→I): 3.0 days (sigma_rate = 1/3)")
-print(f"  Infectious period (I→R): 24.0 days (gamma_rate = 1/24)")
-print(f"  Fastest dynamics: 3.0 days")
+print("  Latent period (E→I): 3.0 days (sigma_rate = 1/3)")
+print("  Infectious period (I→R): 24.0 days (gamma_rate = 1/24)")
+print("  Fastest dynamics: 3.0 days")
 
 # Base configuration
 base_config = {
@@ -194,10 +195,10 @@ print(f"\n{'='*70}")
 print("CONCLUSIONS:")
 print(f"{'='*70}")
 print("Stability limit: dt ≤ fastest_timescale / 3")
-print(f"  For this model: dt ≤ 1.0 days (current setting is at the limit!)")
-print(f"\nLarger timesteps require higher-order methods:")
-print(f"  dt=0.5: All methods stable")
-print(f"  dt=1.0: RK2/RK4 okay, Euler marginal")
-print(f"  dt=2.0: RK4 okay, RK2 marginal, Euler fails")
-print(f"  dt>3.0: All methods fail (insufficient resolution)")
-print(f"\nAdaptive stepping wouldn't help here - you're already at max safe dt!")
+print("  For this model: dt ≤ 1.0 days (current setting is at the limit!)")
+print("\nLarger timesteps require higher-order methods:")
+print("  dt=0.5: All methods stable")
+print("  dt=1.0: RK2/RK4 okay, Euler marginal")
+print("  dt=2.0: RK4 okay, RK2 marginal, Euler fails")
+print("  dt>3.0: All methods fail (insufficient resolution)")
+print("\nAdaptive stepping wouldn't help here - you're already at max safe dt!")
