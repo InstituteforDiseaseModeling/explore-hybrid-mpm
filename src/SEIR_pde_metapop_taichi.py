@@ -193,6 +193,9 @@ def compute_infectious_pressure_kernel(I: ti.template(), phi_vals: ti.template()
     """
     Compute infectious pressure per node: sum over age and bins.
     Parallelized over nodes.
+
+    NOTE: I[bin] is a count (not density), so we do NOT multiply by dphi.
+    The dphi parameter is kept for API compatibility but not used.
     """
     n_nodes, n_age, n_bins = I.shape
 
@@ -201,7 +204,7 @@ def compute_infectious_pressure_kernel(I: ti.template(), phi_vals: ti.template()
         for age in range(n_age):
             for phi_bin in range(n_bins):
                 pressure += I[node, age, phi_bin] * phi_vals[phi_bin]
-        infectious_pressure[node] = pressure * dphi
+        infectious_pressure[node] = pressure
 
 
 @ti.kernel
@@ -390,21 +393,32 @@ def run_simulation_taichi(config: TaichiModelConfig, spatial_seed: int = 42,
     sigma_ln = np.sqrt(np.log(1 + config.theta_variance / config.theta_mean**2))
     mu_ln = np.log(config.theta_mean) - 0.5 * sigma_ln**2
     s_dist = lognorm(s=sigma_ln, scale=np.exp(mu_ln))
-    theta_vals = np.linspace(s_dist.ppf(0.01), s_dist.ppf(0.99), config.n_bins)
-    dtheta = theta_vals[1] - theta_vals[0]
+
+    # Use bin edges for exact CDF integration (resolution-invariant!)
+    theta_edges = np.linspace(s_dist.ppf(0.01), s_dist.ppf(0.99), config.n_bins + 1)
+    theta_vals = 0.5 * (theta_edges[:-1] + theta_edges[1:])  # Bin centers
+    dtheta = theta_edges[1] - theta_edges[0]
+    # Exact probability mass in each bin
+    theta_masses = s_dist.cdf(theta_edges[1:]) - s_dist.cdf(theta_edges[:-1])
 
     # Infectiousness (phi) - Gamma (MUST match baseline exactly!)
     phi_dist = gamma(a=config.phi_shape, scale=config.phi_scale)
-    phi_vals = np.linspace(phi_dist.ppf(0.01), phi_dist.ppf(0.99), config.n_bins)
-    dphi = phi_vals[1] - phi_vals[0]
+    phi_edges = np.linspace(phi_dist.ppf(0.01), phi_dist.ppf(0.99), config.n_bins + 1)
+    phi_vals = 0.5 * (phi_edges[:-1] + phi_edges[1:])  # Bin centers
+    dphi = phi_edges[1] - phi_edges[0]
+    # Exact probability mass in each bin
+    phi_masses = phi_dist.cdf(phi_edges[1:]) - phi_dist.cdf(phi_edges[:-1])
 
-    P = build_P(config.n_bins, width=config.P_width)
+    # Correlation matrix (resolution-invariant)
+    P = build_P(config.n_bins, width=config.P_width, theta_vals=theta_vals, phi_vals=phi_vals)
 
     aux = {
         'theta_vals': theta_vals,
         'phi_vals': phi_vals,
         'dtheta': dtheta,
         'dphi': dphi,
+        'theta_masses': theta_masses,
+        'phi_masses': phi_masses,
         'P': P,
         'aging_rates': aging_rates,
     }
@@ -420,17 +434,17 @@ def run_simulation_taichi(config: TaichiModelConfig, spatial_seed: int = 42,
         age_counts_node = age_counts * (node_pops[node] / config.N_total)
 
         for age_idx in range(config.n_age):
-            S_age_theta = s_dist.pdf(theta_vals)
-            S_age_theta = S_age_theta / S_age_theta.sum() * age_counts_node[age_idx]
+            # Use exact CDF-based masses (resolution-invariant!)
+            S_age_theta = theta_masses * age_counts_node[age_idx]
 
             if node == config.seed_node_idx and age_idx == 0:
-                S_age_theta = S_age_theta / S_age_theta.sum() * (age_counts_node[age_idx] - config.seed_n_infections)
+                S_age_theta = theta_masses * (age_counts_node[age_idx] - config.seed_n_infections)
 
             S_np[node, age_idx, :] = S_age_theta
 
         if node == config.seed_node_idx:
-            I_age_phi = phi_dist.pdf(phi_vals)
-            I_age_phi = I_age_phi / I_age_phi.sum() * config.seed_n_infections
+            # Use exact CDF-based masses (resolution-invariant!)
+            I_age_phi = phi_masses * config.seed_n_infections
             I_np[node, 0, :] = I_age_phi
 
     # Create GPU state

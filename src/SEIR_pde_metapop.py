@@ -134,24 +134,45 @@ class MetaPopState:
 # Correlation Structure
 # ============================================================================
 
-def build_P(n_bins: int, width: float = 9.9242) -> np.ndarray:
+def build_P(n_bins: int, width: float = 9.9242, theta_vals: np.ndarray = None, phi_vals: np.ndarray = None) -> np.ndarray:
     """
     Build conditional probability matrix P(phi | theta).
 
-    Uses Gaussian kernel: P(phi_j | theta_i) ∝ exp(-(i-j)^2 / (2*width^2))
+    Uses Gaussian kernel based on bin indices (for backward compatibility) or actual values.
 
     Args:
         n_bins: Number of discretization bins
-        width: Kernel width (9.9242 achieves ~0.8 correlation for n_bins=50)
+        width: Kernel width (9.9242 achieves ~0.8 correlation for n_bins=50 using bin indices)
+        theta_vals: Optional array of theta values (for resolution-invariant correlation)
+        phi_vals: Optional array of phi values (for resolution-invariant correlation)
 
     Returns:
         P: (n_bins, n_bins) stochastic matrix
     """
     P = np.zeros((n_bins, n_bins))
-    for i in range(n_bins):
-        for j in range(n_bins):
-            P[i, j] = np.exp(-((i - j)**2) / (2 * width**2))
-        P[i, :] /= P[i, :].sum()
+
+    if theta_vals is not None and phi_vals is not None:
+        # Resolution-invariant: use actual value distances
+        # Normalize both to [0, 1] range for scale-invariant correlation
+        theta_norm = (theta_vals - theta_vals.min()) / (theta_vals.max() - theta_vals.min())
+        phi_norm = (phi_vals - phi_vals.min()) / (phi_vals.max() - phi_vals.min())
+
+        # Width in normalized space (calibrated so that 0.2 distance gives ~0.8 correlation)
+        # exp(-(0.2)^2 / (2*sigma^2)) = 0.8 => sigma ≈ 0.45
+        width_normalized = 0.45
+
+        for i in range(n_bins):
+            for j in range(n_bins):
+                dist = abs(theta_norm[i] - phi_norm[j])
+                P[i, j] = np.exp(-(dist**2) / (2 * width_normalized**2))
+            P[i, :] /= P[i, :].sum()
+    else:
+        # Legacy: use bin indices (not resolution-invariant!)
+        for i in range(n_bins):
+            for j in range(n_bins):
+                P[i, j] = np.exp(-((i - j)**2) / (2 * width**2))
+            P[i, :] /= P[i, :].sum()
+
     return P
 
 
@@ -453,16 +474,24 @@ def initialize_state(config: ModelConfig, node_pops: np.ndarray,
     sigma_ln = np.sqrt(np.log(1 + config.theta_variance / config.theta_mean**2))
     mu_ln = np.log(config.theta_mean) - 0.5 * sigma_ln**2
     s_dist = lognorm(s=sigma_ln, scale=np.exp(mu_ln))
-    theta_vals = np.linspace(s_dist.ppf(0.01), s_dist.ppf(0.99), config.n_bins)
-    dtheta = theta_vals[1] - theta_vals[0]
+
+    # Use bin centers for evaluation, bin edges for mass calculation
+    theta_edges = np.linspace(s_dist.ppf(0.01), s_dist.ppf(0.99), config.n_bins + 1)
+    theta_vals = 0.5 * (theta_edges[:-1] + theta_edges[1:])  # Bin centers
+    dtheta = theta_edges[1] - theta_edges[0]
+    # Exact probability mass in each bin (resolution-invariant!)
+    theta_masses = s_dist.cdf(theta_edges[1:]) - s_dist.cdf(theta_edges[:-1])
 
     # Infectiousness (phi) - Gamma
     phi_dist = gamma(a=config.phi_shape, scale=config.phi_scale)
-    phi_vals = np.linspace(phi_dist.ppf(0.01), phi_dist.ppf(0.99), config.n_bins)
-    dphi = phi_vals[1] - phi_vals[0]
+    phi_edges = np.linspace(phi_dist.ppf(0.01), phi_dist.ppf(0.99), config.n_bins + 1)
+    phi_vals = 0.5 * (phi_edges[:-1] + phi_edges[1:])  # Bin centers
+    dphi = phi_edges[1] - phi_edges[0]
+    # Exact probability mass in each bin (resolution-invariant!)
+    phi_masses = phi_dist.cdf(phi_edges[1:]) - phi_dist.cdf(phi_edges[:-1])
 
-    # Correlation matrix
-    P = build_P(config.n_bins, config.P_width)
+    # Correlation matrix (resolution-invariant)
+    P = build_P(config.n_bins, config.P_width, theta_vals=theta_vals, phi_vals=phi_vals)
 
     # Initialize compartments
     state_size = MetaPopState.state_size(config.n_nodes, config.n_age, config.n_bins)
@@ -475,12 +504,12 @@ def initialize_state(config: ModelConfig, node_pops: np.ndarray,
 
         # Initialize susceptibles with heterogeneity
         for age_idx in range(config.n_age):
-            S_age_theta = s_dist.pdf(theta_vals)
-            S_age_theta = S_age_theta / S_age_theta.sum() * age_counts[age_idx]
+            # Use exact CDF-based masses (resolution-invariant!)
+            S_age_theta = theta_masses * age_counts[age_idx]
 
             # If this is the seed node and first age group, remove seed_n_infections individuals
             if node == config.seed_node_idx and age_idx == 0:
-                S_age_theta = S_age_theta / S_age_theta.sum() * (age_counts[age_idx] - config.seed_n_infections)
+                S_age_theta = theta_masses * (age_counts[age_idx] - config.seed_n_infections)
 
             # Place in state vector
             start_idx = node * config.n_age * config.n_bins + age_idx * config.n_bins
@@ -488,8 +517,8 @@ def initialize_state(config: ModelConfig, node_pops: np.ndarray,
 
         # Initialize infectious (only in seed node)
         if node == config.seed_node_idx:
-            I_age_phi = phi_dist.pdf(phi_vals)
-            I_age_phi = I_age_phi / I_age_phi.sum() * config.seed_n_infections
+            # Use exact CDF-based masses (resolution-invariant!)
+            I_age_phi = phi_masses * config.seed_n_infections
 
             # Place in I compartment (first age group)
             I_start = 2 * config.n_nodes * config.n_age * config.n_bins
@@ -504,6 +533,8 @@ def initialize_state(config: ModelConfig, node_pops: np.ndarray,
         'phi_vals': phi_vals,
         'dtheta': dtheta,
         'dphi': dphi,
+        'theta_masses': theta_masses,
+        'phi_masses': phi_masses,
         'P': P,
         'age_labels': age_labels,
         'age_counts': age_counts_template,
@@ -538,7 +569,8 @@ def compute_foi(I: np.ndarray, phi_vals: np.ndarray, dphi: float,
     foi = np.zeros(n_nodes)
 
     # Total infectious pressure from each node (weighted by phi, summed over age and bins)
-    infectious_pressure = np.sum(I * phi_vals[None, None, :], axis=(1, 2)) * dphi
+    # NOTE: I[bin] is a count (not density), so we do NOT multiply by dphi
+    infectious_pressure = np.sum(I * phi_vals[None, None, :], axis=(1, 2))
 
     # FOI at node i = sum over nodes j of: M_ij * (beta_j / N_j) * infectious_j
     for i in range(n_nodes):
