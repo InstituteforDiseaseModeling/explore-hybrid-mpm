@@ -21,6 +21,9 @@ from SEIR_pde_metapop_stochastic_taichi import StochasticModelConfig, run_simula
 figures_dir = Path(__file__).parent.parent / 'figures'
 figures_dir.mkdir(exist_ok=True)
 
+results_dir = Path(__file__).parent.parent / 'results'
+results_dir.mkdir(exist_ok=True)
+
 print("=" * 70)
 print("FULL-SCALE PERFORMANCE TEST")
 print("=" * 70)
@@ -78,6 +81,34 @@ print(f"  Simulation time: {t_sim:.2f}s")
 print(f"  Total time:      {t_total:.2f}s")
 print(f"  Time per step:   {t_sim / 365 * 1000:.2f}ms")
 print(f"  Steps per second: {365 / t_sim:.2f}")
+
+# Save timing results to file
+from datetime import datetime
+timing_file = results_dir / 'performance_test_timing.txt'
+with open(timing_file, 'w') as f:
+    f.write(f"# Performance Test Timing Results\n")
+    f.write(f"# Generated: {datetime.now().isoformat()}\n")
+    f.write(f"#\n")
+    f.write(f"# Configuration\n")
+    f.write(f"n_nodes: {config.n_nodes}\n")
+    f.write(f"n_age: {config.n_age}\n")
+    f.write(f"n_bins: {config.n_bins}\n")
+    f.write(f"total_odes: {774 * 2 * 25 * 3 + 774 * 2}\n")
+    f.write(f"duration_days: {config.duration_days}\n")
+    f.write(f"backend: {config.backend}\n")
+    f.write(f"precision: {'float64' if config.use_float64 else 'float32'}\n")
+    f.write(f"method: {config.deterministic_method}\n")
+    f.write(f"tau_leap_dt: {config.tau_leap_dt}\n")
+    f.write(f"#\n")
+    f.write(f"# Timing Results\n")
+    f.write(f"total_time_seconds: {t_total:.2f}\n")
+    f.write(f"setup_time_seconds: {t_setup:.2f}\n")
+    f.write(f"simulation_time_seconds: {t_sim:.2f}\n")
+    f.write(f"time_per_day_ms: {t_sim / 365 * 1000:.2f}\n")
+    f.write(f"throughput_days_per_second: {365 / t_sim:.2f}\n")
+    f.write(f"timestamp: {datetime.now().isoformat()}\n")
+
+print(f"✓ Saved timing results to: {timing_file}")
 
 # Extract timeseries
 print(f"\n{'=' * 70}")
@@ -227,7 +258,9 @@ print(f"\nResults:")
 print(f"  Peak infections: {I_total.max():.0f}")
 print(f"  Attack rate:     {R_total[-1] / total_pop[0] * 100:.1f}%")
 print(f"  Nodes affected:  {(I_node.max(axis=1) > 1).sum()}/{774}")
-print(f"\nFigures saved to: {figures_dir}/")
-print("  - performance_test_diagnostics.pdf (4-panel overview)")
-print("  - performance_test_heatmap.pdf (detailed infection heatmap)")
+print(f"\nOutput files:")
+print(f"  Timing results: {results_dir}/performance_test_timing.txt")
+print(f"  Figures: {figures_dir}/")
+print("    - performance_test_diagnostics.pdf (4-panel overview)")
+print("    - performance_test_heatmap.pdf (detailed infection heatmap)")
 print(f"\n{'=' * 70}")
