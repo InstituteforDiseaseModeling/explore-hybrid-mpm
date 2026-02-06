@@ -30,9 +30,7 @@ env/
 # IDEs
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
+.claude/
 
 # Jupyter
 .ipynb_checkpoints
@@ -58,6 +56,9 @@ data/
 *.tmp
 *.bak
 .DS_Store
+*.swp
+*.swo
+*~
 
 # Optuna databases
 optuna*.db
@@ -71,7 +72,7 @@ figures/*.pdf
 !figures/quick_example.pdf
 !figures/threshold_comparison.pdf
 !figures/threshold_individual_realizations.pdf
+!figures/threshold_summary_stats.pdf
 !figures/timestep_stability.pdf
-!figures/age_dynamics_seed_node.pdf
 !figures/metapop_heatmap.pdf
 !figures/metapop_heatmap_taichi.pdf

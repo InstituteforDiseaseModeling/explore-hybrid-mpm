@@ -28,7 +28,7 @@ print("="*70)
 
 # Base configuration
 base_config = {
-    'n_nodes': 128,
+    'n_nodes': 4,
     'n_age': 16,
     'n_bins': 50,
     'seed_node_idx': 0,
@@ -37,7 +37,7 @@ base_config = {
     'duration_days': 150,
     'backend': 'metal',  # Use GPU acceleration (Metal on macOS, or 'cuda' on NVIDIA)
     'use_float64': False,  # float32 is sufficient for stochastic models
-    'tau_leap_dt': 1.0,
+    'tau_leap_dt': 0.5,  # Reduced from 1.0 to avoid numerical instability in deterministic mode
     'output_freq_days': 1.0,
 }
 

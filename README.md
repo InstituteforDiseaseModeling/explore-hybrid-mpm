@@ -63,6 +63,8 @@ pip install -e .
 
 ## Quick Start
 
+![Example output showing epidemic dynamics](figures/quick_example.pdf)
+
 ### Basic Usage
 
 ```python
@@ -277,22 +279,24 @@ If you use this code in your research, please cite:
 @software{explore_hybrid_mpm,
   title = {Hybrid Stochastic/Deterministic SEIR Metapopulation Model},
   author = {Institute for Disease Modeling},
-  year = {2024},
-  url = {https://github.com/institutefordiseasemodeling/explore-hybrid-mpm}
+  year = {2026},
+  url = {https://github.com/InstituteforDiseaseModeling/explore-hybrid-mpm}
 }
 ```
 
 ## License
 
-[Specify license here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-Contributions welcome! Please open an issue or pull request.
+Contributions are welcome! Please open an issue or pull request on the [GitHub repository](https://github.com/InstituteforDiseaseModeling/explore-hybrid-mpm).
 
 ## Contact
 
-[Your contact information]
+For questions or issues, please:
+- Open an issue on [GitHub](https://github.com/InstituteforDiseaseModeling/explore-hybrid-mpm/issues)
+- Contact the maintainer: Daniel J. Klein (daniel.klein@gatesfoundation.org)
 
 ## Acknowledgments
 
