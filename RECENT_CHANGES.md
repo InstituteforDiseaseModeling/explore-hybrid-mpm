@@ -98,6 +98,53 @@ Added detailed comments explaining:
 
 ---
 
+## Configuration Changes ⚠️
+
+**IMPORTANT**: Test configurations were reduced for faster iteration during debugging.
+
+### examples/test_timestep_stability.py
+
+**Before** (commit 9a445a0):
+```python
+base_config = {
+    'n_nodes': 128,
+    'n_age': 16,      # 16 age groups
+    'n_bins': 50,     # 50 heterogeneity bins
+    # Total ODEs: 128 * 16 * 50 * 3 + 128 * 16 = 307,456 ODEs
+    'duration_days': 150,
+}
+```
+
+**After** (commit 376b0bb):
+```python
+base_config = {
+    'n_nodes': 128,
+    'n_age': 2,       # REDUCED to 2 age groups
+    'n_bins': 25,     # REDUCED to 25 heterogeneity bins
+    # Total ODEs: 128 * 2 * 25 * 3 + 128 * 2 = 19,456 ODEs
+    'duration_days': 150,
+}
+```
+
+**Impact**:
+- **16× reduction in problem size** (307K → 19K ODEs)
+- **Much faster execution** (~5-10× speedup)
+- Same qualitative behavior (RK2 still explodes, RK4 still works)
+- Peak infections changed (~30K → ~130K) due to different age structure
+
+### examples/test_deterministic_methods.py
+
+Uses same reduced config (n_age=2, n_bins=25) - already had this configuration.
+
+### ⚠️ Note for Production
+
+If restoring full-scale config (n_age=16, n_bins=50):
+- Expect RK2 issues to be **even worse** (larger system = more accumulation)
+- RK4 should still work but may need smaller dt for accuracy
+- Test with full config before deployment!
+
+---
+
 ## Files Modified
 
 ### Core Implementation
@@ -108,11 +155,16 @@ Added detailed comments explaining:
 
 ### Test Scripts
 - **examples/test_timestep_stability.py**
-  - Line 46: Changed from `['euler', 'rk2', 'rk4']` to `['euler', 'rk4']`
+  - **Lines 30-32: REDUCED CONFIG** - `n_age: 16→2`, `n_bins: 50→25`
+  - Line 46: Changed methods from `['euler', 'rk2', 'rk4']` to `['euler', 'rk4']`
   - Lines 199-205: Updated conclusions to remove RK2, explain method selection
 
+- **examples/test_deterministic_methods.py**
+  - Lines 21-22: Already uses reduced config (n_age=2, n_bins=25)
+  - Line 35: Disabled RK2 for consistency with test_timestep_stability.py
+
 ### Figures
-- **figures/timestep_stability.pdf**: Regenerated with RK2 disabled
+- **figures/timestep_stability.pdf**: Regenerated with RK2 disabled + reduced config
 - **figures/threshold_*.pdf**: Regenerated (unrelated changes)
 - **figures/quick_example.pdf**: Regenerated (unrelated changes)
 

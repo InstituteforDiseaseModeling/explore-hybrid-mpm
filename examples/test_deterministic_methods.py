@@ -1,8 +1,10 @@
 """
-Test different deterministic integration methods (Euler, RK2, RK4).
+Test different deterministic integration methods (Euler, RK4).
 
-Compares speed and accuracy of the three methods for fully deterministic
+Compares speed and accuracy of the two methods for fully deterministic
 simulations (threshold=0).
+
+Note: RK2 disabled due to catastrophic mass conservation errors with clamping.
 """
 
 import time
@@ -32,7 +34,7 @@ base_config = {
     'stochastic_seed': 42,
 }
 
-methods = ['euler', 'rk2', 'rk4']
+methods = ['euler', 'rk4']  # RK2 disabled - has catastrophic mass conservation errors
 results_dict = {}
 
 for method in methods:
@@ -80,7 +82,7 @@ print("ACCURACY COMPARISON (vs RK4)")
 print(f"{'='*70}")
 
 rk4_I = results_dict['rk4']['I_total']
-for method in ['euler', 'rk2']:
+for method in ['euler']:  # Only compare Euler to RK4 (RK2 disabled)
     I_diff = results_dict[method]['I_total'] - rk4_I
     rmse = np.sqrt(np.mean(I_diff**2))
     max_abs_error = np.abs(I_diff).max()
@@ -94,7 +96,7 @@ for method in ['euler', 'rk2']:
 print(f"\n{'='*70}")
 print("CONCLUSIONS:")
 print(f"{'='*70}")
-print(f"- Euler: {results_dict['euler']['runtime']/rk4_time:.1f}× faster, but with accuracy tradeoffs")
-print(f"- RK2: {results_dict['rk2']['runtime']/rk4_time:.1f}× faster, good accuracy/speed balance")
-print(f"- RK4: Most accurate, but {rk4_time/results_dict['euler']['runtime']:.1f}× slower than Euler")
-print("\nRecommendation: Use RK2 for dt=1.0 days (good balance)")
+print(f"- Euler: {results_dict['euler']['runtime']/rk4_time:.1f}× faster, but with significant accuracy tradeoffs")
+print(f"- RK4: Most accurate (~1% mass error at dt=1.0), {rk4_time/results_dict['euler']['runtime']:.1f}× slower than Euler")
+print("\nRecommendation: Use RK4 for dt≤1.0 days (best accuracy/stability balance)")
+print("Note: RK2 disabled - has catastrophic mass conservation errors with clamping")
