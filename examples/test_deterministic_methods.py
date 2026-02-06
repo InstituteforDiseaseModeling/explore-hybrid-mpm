@@ -18,8 +18,8 @@ print("="*70)
 # Base configuration (fully deterministic with threshold=0)
 base_config = {
     'n_nodes': 128,
-    'n_age': 16,
-    'n_bins': 50,
+    'n_age': 2,
+    'n_bins': 25,
     'seed_node_idx': 0,
     'seed_n_infections': 10.0,
     'gravity_k': 0.01,

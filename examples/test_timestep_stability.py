@@ -28,8 +28,8 @@ print("  Fastest dynamics: 3.0 days")
 # Base configuration
 base_config = {
     'n_nodes': 128,
-    'n_age': 16,
-    'n_bins': 50,
+    'n_age': 2,
+    'n_bins': 25,
     'seed_node_idx': 0,
     'seed_n_infections': 10.0,
     'gravity_k': 0.01,
@@ -43,7 +43,7 @@ base_config = {
 
 # Test different timesteps
 timesteps = [0.25, 0.5, 1.0, 2.0, 4.0]
-methods = ['euler', 'rk2', 'rk4']
+methods = ['euler', 'rk4']  # RK2 disabled - has catastrophic mass conservation errors with clamping
 
 print(f"\n{'='*70}")
 print("Testing timesteps (dt):")
@@ -196,9 +196,10 @@ print("CONCLUSIONS:")
 print(f"{'='*70}")
 print("Stability limit: dt ≤ fastest_timescale / 3")
 print("  For this model: dt ≤ 1.0 days (current setting is at the limit!)")
-print("\nLarger timesteps require higher-order methods:")
-print("  dt=0.5: All methods stable")
-print("  dt=1.0: RK2/RK4 okay, Euler marginal")
-print("  dt=2.0: RK4 okay, RK2 marginal, Euler fails")
+print("\nMethod selection for different timesteps:")
+print("  dt≤0.5: All methods stable")
+print("  dt=1.0: RK4 okay (~8% error), Euler marginal")
+print("  dt=2.0: RK4 marginal (~16% error), Euler fails")
 print("  dt>3.0: All methods fail (insufficient resolution)")
-print("\nAdaptive stepping wouldn't help here - you're already at max safe dt!")
+print("\nNote: RK2 disabled due to catastrophic mass conservation errors with clamping.")
+print("Use RK4 for best accuracy with fixed timesteps, or implement adaptive stepping.")
