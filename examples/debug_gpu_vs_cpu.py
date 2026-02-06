@@ -15,7 +15,8 @@ config = ModelConfig(
     n_age=2,
     n_bins=5,
     gravity_k=0.01,
-    duration_days=1,  # Just 1 day for quick test
+    duration_days=2,  # Need at least 2 days to get multiple time points
+    output_freq_days=1.0,
 )
 
 print("="*70)
